@@ -1,10 +1,131 @@
 <template>
-  <button class="button button--close" />
+  <div
+      v-if="isVisible"
+      :class="{ 'modal-content--visible': isVisible }"
+      class="modal-content"
+  >
+    <button class="button button--close" @click="closeModal" />
+    <div class="modal-content__body">
+      <h2>
+        Heading
+        <!-- {{
+          selectedTile?.getTileBuildingEntity()?.title ??
+          selectedTile?.getTileTerrainEntity()?.title
+        }} -->
+      </h2>
+      <br />
+      <p>
+        Tile at:
+        <span class="badge"
+        >X: <b>{{ selectedTile?.x }}</b></span
+        >,
+        <span class="badge"
+        >Y: <b>{{ selectedTile?.y }}</b></span
+        >
+      </p>
+      <br />
+      <p>
+        <span>Distance from settlement:</span>
+        <br />
+        <br />
+        <span class="badge"
+        >X: <b>{{ selectedTile!.x - 512 }}</b></span
+        >,
+        <span class="badge"
+        >Y: <b>{{ selectedTile!.y - 512 }}</b></span
+        >
+      </p>
+      <br />
+      <br />
+      <div class="modal-content__section">
+				<span class="modal-content__section-label"
+        >Can upgrade to:</span
+        >
+        <div class="modal-content__section-options option-collection">
+          <div
+              v-for="(entity, index) in selectedTile?.canUpgradeTo"
+              :key="index"
+              class="option-collection-item"
+              @click="handleUpgrade(entity)"
+          >
+            <div class="option-collection-item__image" />
+            <span class="option-collection-item__label">
+							{{ entity?.toString().slice(0, -4) }}
+						</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script lang="ts" setup>
+import { TerrainType } from "@/game/entities/config";
+import TileEntity from "@/game/entities/TileEntity";
+import useEmitter, { EmitterEvents } from "@/hooks/useEmitter";
+import useTileRepository from "@/hooks/useTileRepository";
+import { onMounted, ref, watch } from "vue";
+import { RouteParamsGeneric, useRoute, useRouter } from "vue-router";
 
+const route = useRoute();
+const router = useRouter();
 
+const emitter = useEmitter();
+const tilerepo = useTileRepository();
+const isVisible = ref(false);
+
+const selectedTile = ref<TileEntity | null>(null);
+
+watch(
+    (): RouteParamsGeneric => route.params,
+    (newValue): void => {
+      if (newValue.x && newValue.y) {
+        setCurrentTile(+newValue.x, +newValue.y);
+        isVisible.value = true;
+      }
+    },
+);
+
+const handleUpgrade = (terrainType: TerrainType): void => {
+  emitter.emit(EmitterEvents.TileRepositoryUpgrade, {
+    coordinates: { x: selectedTile.value!.x, y: selectedTile.value!.y },
+    terrainType,
+  });
+};
+
+const setCurrentTile = (x: number, y: number): void => {
+  const tempSelectedTile = selectedTile.value;
+
+  selectedTile.value = tilerepo.getTileAt({
+    x,
+    y,
+  });
+
+  if (!tempSelectedTile && selectedTile.value) {
+    // Emit event to tile repo in case of URL loading, we have this selected
+    // TODO teraz vieme, ze toto sa vykonava pri init loade, skor nez sa dostaneme do create() main sceny cize missneme bez oneskorenia event
+    // preto setTimeout
+    // potrebujeme mozno nejaky queue mechanizmus
+    isVisible.value = true;
+    // TODO isPhaserReady
+    setTimeout((): void => {
+      emitter.emit(EmitterEvents.PhaserTileSelect, {
+        x: selectedTile.value!.x,
+        y: selectedTile.value!.y,
+      });
+    }, 1000);
+  }
+};
+
+const closeModal = (): void => {
+  router.push({ name: "LayoutView" });
+  emitter.emit(EmitterEvents.PhaserTileDeselect);
+};
+
+onMounted((): void => {
+  if (!route.params.x || !route.params.y) return;
+  setCurrentTile(+route.params.x, +route.params.y);
+});
 </script>
 
 <style lang="scss" scoped>
@@ -24,16 +145,24 @@ $bottom: 2rem;
   background-color: white;
   padding: 1rem;
   width: 20rem;
-  height: 12rem;
+  // height: 12rem;
 
   &__body {
     flex: 1 1 auto;
+    width: 100%;
 
     .badge {
       border: 0.125rem solid #dfdfdf;
       border-radius: 1rem;
       padding: 0.125rem 0.5rem;
     }
+  }
+
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
   }
 
   .button {
@@ -56,6 +185,56 @@ $bottom: 2rem;
         width: 100%;
         height: 100%;
         content: "";
+      }
+    }
+  }
+
+  .option-collection {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    overflow-x: auto;
+
+    &-item {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      border-radius: 0.5rem;
+      background-color: #dedede;
+      padding: 0.5rem;
+      width: 6rem;
+      height: 6rem;
+
+      &__image {
+        flex: 1 1 auto;
+        border-radius: 0.25rem;
+        width: 5rem;
+      }
+
+      &__label {
+        font-weight: 800;
+        font-size: 0.75rem;
+      }
+
+      &:nth-child(1) {
+        .option-collection-item__image {
+          background: green;
+        }
+      }
+
+      &:nth-child(2) {
+        .option-collection-item__image {
+          background: darkgreen;
+        }
+      }
+
+      &:nth-child(3) {
+        .option-collection-item__image {
+          background: darkred;
+        }
       }
     }
   }

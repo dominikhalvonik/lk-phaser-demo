@@ -12,6 +12,6 @@ export type RouteRecordCustom = Pick<RouteRecordRaw, "path"> &
 			| "beforeEnter"
 			| "meta"
 		> & {
-			children?: RouteRecordCustom[];
-		}
+		children?: RouteRecordCustom[];
+	}
 	>;
