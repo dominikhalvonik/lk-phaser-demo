@@ -4,6 +4,7 @@ import useEmitter, {
 } from "@/hooks/useEmitter";
 import useTileRepository from "@/hooks/useTileRepository";
 import { type TexturePackerConfigTextureFrame } from "@/types/texture-packer";
+import { type TileEntityCoordinates } from "@/types/tile";
 import { isAstcSupported } from "@/utils/textures";
 import Phaser from "phaser";
 import { TerrainType } from "./entities/config";
@@ -72,7 +73,7 @@ class MainMapScene extends Phaser.Scene {
         EXPLORED: 2,
     };
 
-    constructor() {
+    public constructor() {
         super({
             key: "MainMapScene",
         });
@@ -221,10 +222,12 @@ class MainMapScene extends Phaser.Scene {
                     )
                     : this.tilerepo.getNonBlackTileCount();
 
-                const layer = this.add.spriteGPULayer(
-                    this.getAtlasNameByAtlasUrl(atlasUrl),
-                    spriteGPULayerSize,
-                );
+                const layer = this.add
+                    .spriteGPULayer(
+                        this.getAtlasNameByAtlasUrl(atlasUrl),
+                        spriteGPULayerSize,
+                    )
+                    .setDepth(index);
                 this.layers.push(layer);
             },
         );
@@ -267,18 +270,68 @@ class MainMapScene extends Phaser.Scene {
         }
     }
 
-    // TODO vyhodnit idx a dopocitat na zak. coordinates
     rerenderTile(idx: number): void {
         const { TILE_SIZE, TILE_SIZE_TALL } = this.tilerepo;
         const TILE_SIZE_TALL_CORRECTION = (TILE_SIZE_TALL - TILE_SIZE) / 2;
         const { x, y } = this.tilerepo.getTileCoordinatesByIndex(idx);
-        const currentMember = this.getMemberByCoordinates({ x, y });
-        console.log(currentMember);
 
-        currentMember.forEach((member: SuperMember): void => {
-            this.layers[member.layerIndex].removeMembers(member.index);
-        });
+        const currentMembers = isVisibleAll
+            ? null
+            : this.getMembersByCoordinates({
+                x,
+                y,
+            });
 
+        /*
+            (Just before bed time) My suggestion is:
+
+            Use layers of just a few thousand buildings.
+
+            (Your single 1024x1024 layer is fine. It already works.)
+
+            When you need to edit a building layer:
+
+            1. Update your own records about the buildings. Make sure they're in the correct display order.
+            2. Remove all the members from the layer.
+            3. Recreate the layer using your own records.
+
+            This should be fine for two reasons:
+
+            A) On the frame that you edit the building layer, it shouldn't cause major lag spikes - it's within expected performance levels.
+            B) On all other frames, it's a SpriteGPULayer so it renders super fast.
+        */
+
+        if (currentMembers?.length) {
+            currentMembers.forEach(
+                ({ layerIndex, index: memberIndex }: SuperMember): void => {
+                    // remove target member
+                    this.layers[layerIndex].removeMembers(memberIndex);
+
+                    // extract all necessary data from old layer
+                    const { texture, size, memberCount } =
+                        this.layers[layerIndex];
+
+                    // create new empty layer
+                    const newLayer = this.add
+                        .spriteGPULayer(texture, size)
+                        .setDepth(layerIndex);
+
+                    // set members from old layer to new layer
+                    for (let i = 0; i < memberCount; i++) {
+                        const m = this.layers[layerIndex].getMember(i);
+                        if (m) newLayer.addMember(m);
+                    }
+
+                    // destroy old layer
+                    this.layers[layerIndex].destroy();
+
+                    // set new layer to phaser scene ref
+                    this.layers[layerIndex] = newLayer;
+                },
+            );
+        }
+
+        // render tile according our config
         this.tilerepo
             .getTileIdsByIndex(idx)
             .map((tileId: number): TerrainType | null =>
@@ -291,8 +344,7 @@ class MainMapScene extends Phaser.Scene {
                     (atlas: Set<TerrainType>, index: number): void => {
                         if (!atlas.has(name)) return;
 
-                        const layer = this.layers[index];
-                        const memberData = {
+                        this.layers[index].addMember({
                             frame: name,
                             x: x * TILE_SIZE,
                             y:
@@ -300,48 +352,49 @@ class MainMapScene extends Phaser.Scene {
                                 (this.tallFrameNamesCache.has(name)
                                     ? TILE_SIZE_TALL_CORRECTION
                                     : 0),
-                        };
-                        layer.addMember(memberData);
+                        });
                     },
                 );
             });
     }
 
-    getMemberByCoordinates({ x, y }: { x: number; y: number }): SuperMember[] {
-        const members: SuperMember[] = [];
+    getMembersByCoordinates({
+                                x,
+                                y,
+                            }: TileEntityCoordinates): Array<SuperMember> {
         const { TILE_SIZE, TILE_SIZE_TALL } = this.tilerepo;
         const TILE_SIZE_TALL_CORRECTION = (TILE_SIZE_TALL - TILE_SIZE) / 2;
 
-        const tileSize = this.tilerepo.TILE_SIZE;
-
         // NOTE: layer.memberCount === layer.size
-        this.layers.forEach(
+        return this.layers.reduce(
             (
+                acc: Array<SuperMember>,
                 layer: Phaser.GameObjects.SpriteGPULayer,
                 layerIndex: number,
-            ): void => {
-                for (let i = 0, size = layer.size; i < size; i++) {
-                    const member = layer.getMember(i);
-                    if (!member) continue;
-                    if (isNaN(+member.x) || isNaN(+member.y)) continue;
+            ): Array<SuperMember> => {
+                for (let index = 0; index < layer.size; index++) {
+                    const member = layer.getMember(index);
+                    if (!member || isNaN(+member.x) || isNaN(+member.y))
+                        continue;
 
                     const memberFrame = member.frame as TerrainType;
-
-                    const memberX = Math.trunc(+member.x / tileSize);
+                    const memberX = Math.trunc(+member.x / TILE_SIZE);
                     const memberY = Math.trunc(
                         (+member.y +
                             (this.tallFrameNamesCache.has(memberFrame)
                                 ? TILE_SIZE_TALL_CORRECTION
                                 : 0)) /
-                        tileSize,
+                        TILE_SIZE,
                     );
 
                     if (memberX === x && memberY === y)
-                        members.push({ index: i, member: member, layerIndex });
+                        acc.push({ index, member, layerIndex });
                 }
+
+                return acc;
             },
+            [] as Array<SuperMember>,
         );
-        return members;
     }
 
     setupSceneCamera(): void {
@@ -406,7 +459,9 @@ class MainMapScene extends Phaser.Scene {
                             this.tilerepo.TILE_SIZE,
                             this.tilerepo.TILE_SIZE,
                         ),
-                    );
+                    )
+
+                    .setDepth(this.layers.length);
             } else {
                 this.graphics!.clear();
 
@@ -417,7 +472,7 @@ class MainMapScene extends Phaser.Scene {
                         this.tilerepo.TILE_SIZE,
                         this.tilerepo.TILE_SIZE,
                     ),
-                );
+                ).setDepth(this.layers.length);
             }
             this.lastClickedTile = clickedTile;
         } else {
@@ -485,7 +540,7 @@ class MainMapScene extends Phaser.Scene {
             const cost = 92;
             this.toastMessageAnimation(x, y, `- ${cost} Gold`); // TODO dynamic value from config
         } else {
-            const currentMember = this.getMemberByCoordinates({
+            const currentMember = this.getMembersByCoordinates({
                 x,
                 y,
             });
@@ -574,11 +629,11 @@ class MainMapScene extends Phaser.Scene {
                     this.selectTile(clickedTile);
                     break;
                 case this.visibilityType.FOG:
-                    this.deselectAndRedrect();
+                    this.deselectAndRedirect();
                     this.exploreTile(clickedTile);
                     break;
                 case this.visibilityType.BLACK:
-                    this.deselectAndRedrect();
+                    this.deselectAndRedirect();
                     break;
                 default:
                     break;
@@ -586,7 +641,7 @@ class MainMapScene extends Phaser.Scene {
         }
     }
 
-    deselectAndRedrect(): void {
+    deselectAndRedirect(): void {
         // this closes the modal window, reset to base url
         this.emitter.emit(EmitterEvents.PhaserRedirect);
         // but we still need to remove the last selected tile from the scene
@@ -653,7 +708,6 @@ class MainMapScene extends Phaser.Scene {
                     const row = Math.trunc(
                         (worldPoint.x + halfTileSize) / this.tilerepo.TILE_SIZE,
                     );
-
                     const tile = this.tilerepo.getTileAt({
                         x: row,
                         y: col,
