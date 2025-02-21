@@ -282,51 +282,19 @@ class MainMapScene extends Phaser.Scene {
                 y,
             });
 
-        /*
-            (Just before bed time) My suggestion is:
-
-            Use layers of just a few thousand buildings.
-
-            (Your single 1024x1024 layer is fine. It already works.)
-
-            When you need to edit a building layer:
-
-            1. Update your own records about the buildings. Make sure they're in the correct display order.
-            2. Remove all the members from the layer.
-            3. Recreate the layer using your own records.
-
-            This should be fine for two reasons:
-
-            A) On the frame that you edit the building layer, it shouldn't cause major lag spikes - it's within expected performance levels.
-            B) On all other frames, it's a SpriteGPULayer so it renders super fast.
-        */
-
         if (currentMembers?.length) {
             currentMembers.forEach(
-                ({ layerIndex, index: memberIndex }: SuperMember): void => {
-                    // remove target member
-                    this.layers[layerIndex].removeMembers(memberIndex);
-
-                    // extract all necessary data from old layer
-                    const { texture, size, memberCount } =
-                        this.layers[layerIndex];
-
-                    // create new empty layer
-                    const newLayer = this.add
-                        .spriteGPULayer(texture, size)
-                        .setDepth(layerIndex);
-
-                    // set members from old layer to new layer
-                    for (let i = 0; i < memberCount; i++) {
-                        const m = this.layers[layerIndex].getMember(i);
-                        if (m) newLayer.addMember(m);
-                    }
-
-                    // destroy old layer
-                    this.layers[layerIndex].destroy();
-
-                    // set new layer to phaser scene ref
-                    this.layers[layerIndex] = newLayer;
+                ({
+                     member,
+                     index: memberIndex,
+                     layerIndex,
+                 }: SuperMember): void => {
+                    this.layers[layerIndex].editMember(memberIndex, {
+                        ...member,
+                        alpha: 0,
+                        scaleX: 0,
+                        scaleY: 0,
+                    });
                 },
             );
         }
@@ -343,6 +311,22 @@ class MainMapScene extends Phaser.Scene {
                 this.frameNameToLayerCache.forEach(
                     (atlas: Set<TerrainType>, index: number): void => {
                         if (!atlas.has(name)) return;
+
+                        const currentMember = currentMembers?.find(
+                            ({ layerIndex }: SuperMember): boolean =>
+                                layerIndex === index,
+                        );
+
+                        if (currentMember) {
+                            this.layers[index].editMember(currentMember.index, {
+                                ...currentMember.member,
+                                frame: name,
+                                alpha: 1,
+                                scaleX: 1,
+                                scaleY: 1,
+                            });
+                            return;
+                        }
 
                         this.layers[index].addMember({
                             frame: name,
