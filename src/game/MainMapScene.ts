@@ -275,14 +275,14 @@ class MainMapScene extends Phaser.Scene {
         const TILE_SIZE_TALL_CORRECTION = (TILE_SIZE_TALL - TILE_SIZE) / 2;
         const { x, y } = this.tilerepo.getTileCoordinatesByIndex(idx);
 
-        const currentMembers = isVisibleAll
-            ? null
-            : this.getMembersByCoordinates({
+        const currentMembers = this.isCreated
+            ? this.getMembersByCoordinates({
                 x,
                 y,
-            });
+            })
+            : [];
 
-        if (currentMembers?.length) {
+        if (currentMembers.length) {
             currentMembers.forEach(
                 ({
                      member,
@@ -295,6 +295,12 @@ class MainMapScene extends Phaser.Scene {
                         scaleX: 0,
                         scaleY: 0,
                     });
+
+                    // This does not work.
+                    // this.layers[layerIndex].setSegmentNeedsUpdate(memberIndex);
+
+                    // Will be fixed in Phaser 4.0.0 beta 7.
+                    this.layers[layerIndex].setAllSegmentsNeedUpdate();
                 },
             );
         }
@@ -325,7 +331,20 @@ class MainMapScene extends Phaser.Scene {
                                 scaleX: 1,
                                 scaleY: 1,
                             });
+
+                            // This does not work.
+                            // this.layers[index].setSegmentNeedsUpdate(currentMember.index);
+
+                            // Will be fixed in Phaser 4.0.0 beta 7.
+                            this.layers[index].setAllSegmentsNeedUpdate();
+
                             return;
+                        }
+
+                        if (this.isCreated) {
+                            this.layers[index].resize(
+                                this.layers[index].memberCount + 1,
+                            );
                         }
 
                         this.layers[index].addMember({
