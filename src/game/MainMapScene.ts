@@ -102,6 +102,15 @@ class MainMapScene extends Phaser.Scene {
         this.addClickHandler();
 
         this.initEmitters();
+
+        this.tweens.add({
+            targets: this.cameras.main,
+            zoom: 2,
+            duration: 2000,
+            ease: "Cubic",
+            repeat: -1,
+            yoyo: true,
+        });
     }
 
     initEmitters(): void {
@@ -429,6 +438,7 @@ class MainMapScene extends Phaser.Scene {
                 pinchZoomEnable: true,
                 pinchZoomMin: 0.1,
                 pinchZoomMax: 10,
+                pinchZoomFocusEnable: false,
             });
         }
 
